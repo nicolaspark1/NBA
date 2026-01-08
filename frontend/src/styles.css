@@ -64,6 +64,54 @@ input {
   border: 1px solid #cbd5f5;
 }
 
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #ffffff;
+  border: 1px solid #cbd5f5;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  max-height: 240px;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.autocomplete-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.autocomplete-item:hover {
+  background: #e2e8f0;
+}
+
+.autocomplete-item.selected {
+  background: #0f172a;
+  color: #fff;
+}
+
+.autocomplete-item.muted {
+  cursor: default;
+  color: #64748b;
+}
+
+.autocomplete-item.muted:hover {
+  background: transparent;
+}
+
 .actions {
   display: flex;
   gap: 0.75rem;

@@ -77,6 +77,7 @@ export default function App() {
   const [groupSearchResults, setGroupSearchResults] = useState<Group[]>([]);
   const [groupSearchLoading, setGroupSearchLoading] = useState(false);
   const [selectedGroupForJoin, setSelectedGroupForJoin] = useState<Group | null>(null);
+  const [groupSearchFocused, setGroupSearchFocused] = useState(false);
   const [group, setGroup] = useState<Group | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -136,8 +137,7 @@ export default function App() {
 
   useEffect(() => {
     const q = groupSearchQuery.trim();
-    setSelectedGroupForJoin(null);
-    if (q.length < 2) {
+    if (q.length < 1) {
       setGroupSearchResults([]);
       setGroupSearchLoading(false);
       return;
@@ -168,6 +168,13 @@ export default function App() {
       window.clearTimeout(timeout);
     };
   }, [groupSearchQuery]);
+
+  const selectGroupForJoin = (g: Group) => {
+    setSelectedGroupForJoin(g);
+    setJoinCode(g.code);
+    setGroupSearchQuery(g.name);
+    setGroupSearchFocused(false);
+  };
 
   useEffect(() => {
     if (!group) return;
@@ -343,44 +350,57 @@ export default function App() {
               <h3>Join an existing group</h3>
               <label>
                 Search groups (name or code)
-                <input
-                  value={groupSearchQuery}
-                  onChange={(e) => setGroupSearchQuery(e.target.value)}
-                  placeholder="Type at least 2 characters…"
-                />
+                <div className="autocomplete">
+                  <input
+                    value={groupSearchQuery}
+                    onChange={(e) => {
+                      setGroupSearchQuery(e.target.value);
+                      setSelectedGroupForJoin(null);
+                    }}
+                    onFocus={() => setGroupSearchFocused(true)}
+                    onBlur={() => window.setTimeout(() => setGroupSearchFocused(false), 150)}
+                    placeholder="Start typing…"
+                  />
+
+                  {groupSearchFocused && groupSearchQuery.trim().length >= 1 && (
+                    <div className="autocomplete-dropdown">
+                      {groupSearchLoading ? (
+                        <div className="autocomplete-item muted">Searching…</div>
+                      ) : groupSearchResults.length === 0 ? (
+                        <div className="autocomplete-item muted">No results.</div>
+                      ) : (
+                        groupSearchResults.map((g) => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            className={
+                              selectedGroupForJoin?.code === g.code
+                                ? "autocomplete-item selected"
+                                : "autocomplete-item"
+                            }
+                            onMouseDown={(e) => {
+                              // Prevent input blur before we can select.
+                              e.preventDefault();
+                              selectGroupForJoin(g);
+                            }}
+                          >
+                            <strong>{g.name}</strong> — <span className="code">{g.code}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </label>
-
-              {groupSearchLoading && <p>Searching…</p>}
-
-              {!groupSearchLoading &&
-                groupSearchQuery.trim().length >= 2 &&
-                groupSearchResults.length === 0 && <p>No results.</p>}
-
-              {groupSearchResults.length > 0 && (
-                <ul className="list">
-                  {groupSearchResults.map((g) => (
-                    <li key={g.id}>
-                      <button
-                        onClick={() => {
-                          setSelectedGroupForJoin(g);
-                          setJoinCode(g.code);
-                        }}
-                        className={
-                          selectedGroupForJoin?.code === g.code ? "selected" : ""
-                        }
-                      >
-                        <strong>{g.name}</strong> — <span className="code">{g.code}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
 
               <label>
                 Or enter code directly
                 <input
                   value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
+                  onChange={(e) => {
+                    setJoinCode(e.target.value);
+                    setSelectedGroupForJoin(null);
+                  }}
                   placeholder="ABC123"
                 />
               </label>
