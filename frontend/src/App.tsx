@@ -40,9 +40,29 @@ type PickResult = {
   };
 };
 
-// In dev, Vite proxies `/api` to the backend (see `vite.config.ts`).
-// In production (Render Docker), the backend serves the built frontend and `/api` is same-origin.
-const apiBase = "/api";
+// API base:
+// - Default: same-origin `/api` (works for the single Render Docker service).
+// - Override for split deployments (Render Static Site + separate backend):
+//   set `VITE_API_BASE` to something like `https://YOUR-BACKEND.onrender.com/api`
+const apiBase = (import.meta.env.VITE_API_BASE ?? "/api").replace(/\/$/, "");
+
+async function readError(res: Response): Promise<string> {
+  const status = `HTTP ${res.status}`;
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") return `${status}: ${data.detail}`;
+    if (typeof data?.message === "string") return `${status}: ${data.message}`;
+    return `${status}: ${JSON.stringify(data)}`;
+  } catch {
+    try {
+      const text = await res.text();
+      const snippet = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+      return `${status}: ${snippet || "Unknown error"}`;
+    } catch {
+      return `${status}: Unknown error`;
+    }
+  }
+}
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -144,7 +164,7 @@ export default function App() {
       body: JSON.stringify({ group_name: groupCode, display_name: displayName })
     });
     if (!res.ok) {
-      setError("Unable to create group.");
+      setError(await readError(res));
       return;
     }
     const data = await res.json();
@@ -160,7 +180,7 @@ export default function App() {
       body: JSON.stringify({ group_code: groupCode, display_name: displayName })
     });
     if (!res.ok) {
-      setError("Unable to join group.");
+      setError(await readError(res));
       return;
     }
     const data = await res.json();

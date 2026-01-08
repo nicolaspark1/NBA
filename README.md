@@ -53,7 +53,11 @@ This repo includes a root `Dockerfile` that builds the Vite frontend and serves 
   - Set **`SQLITE_PATH=/var/data/nba.db`**
 
 ### Optional env vars
-- `WEB_CONCURRENCY`: number of Gunicorn workers (default `2`)
+- `WEB_CONCURRENCY`: number of Gunicorn workers (default `1`; keep `1` if using SQLite, bump to `2+` if using Postgres)
+
+## Deploy on Render (alternative: separate frontend + backend)
+If you deploy the frontend as a Render **Static Site** and the backend as a Render **Web Service**, set this on the frontend service (build-time env var):
+- `VITE_API_BASE=https://YOUR-BACKEND.onrender.com/api`
 
 ## Usage
 1. Create a group with your display name and a group name.
