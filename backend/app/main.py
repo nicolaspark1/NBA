@@ -3,11 +3,13 @@ from __future__ import annotations
 import random
 import string
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import List
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -38,8 +40,6 @@ from .schemas import (
     PlayerOut,
 )
 
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 
 app.add_middleware(
@@ -56,6 +56,17 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    # Simple schema creation for this project (no separate migration step required).
+    Base.metadata.create_all(bind=engine)
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
 
 def generate_code() -> str:
@@ -349,3 +360,21 @@ def leaderboard_all_time(code: str, db: Session = Depends(get_db)):
         .all()
     )
     return [LeaderboardRow(user_id=row[0], user_name=row[1], score=row[2]) for row in rows]
+
+
+# --- Frontend static serving (for Docker/Render) ---
+#
+# When we build the Vite app in Docker, we copy the output into `backend/app/static/`.
+# If it exists, we serve it at `/` and keep all API routes under `/api`.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+INDEX_FILE = STATIC_DIR / "index.html"
+
+if INDEX_FILE.is_file():
+    _static_root = STATIC_DIR.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str):
+        candidate = (STATIC_DIR / full_path).resolve()
+        if candidate.is_file() and candidate.is_relative_to(_static_root):
+            return FileResponse(candidate)
+        return FileResponse(INDEX_FILE)

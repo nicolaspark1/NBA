@@ -40,7 +40,9 @@ type PickResult = {
   };
 };
 
-const apiBase = "http://localhost:8000/api";
+// In dev, Vite proxies `/api` to the backend (see `vite.config.ts`).
+// In production (Render Docker), the backend serves the built frontend and `/api` is same-origin.
+const apiBase = "/api";
 
 const today = () => new Date().toISOString().slice(0, 10);
 

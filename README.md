@@ -28,6 +28,32 @@ npm run dev
 ```
 
 The UI runs on `http://localhost:5173`.
+API requests to `/api` are proxied to `http://localhost:8000` by Vite during development.
+
+## Deploy on Render (recommended: single Docker service)
+
+This repo includes a root `Dockerfile` that builds the Vite frontend and serves it from the FastAPI backend.
+
+- **Frontend**: served at `/`
+- **API**: served at `/api`
+
+### Steps
+- Push this repo to GitHub/GitLab.
+- In Render: **New → Web Service**
+- Connect your repo
+- Environment: **Docker**
+- Deploy
+
+### Persistence (pick one)
+- **Postgres (recommended)**:
+  - Create a Render Postgres database
+  - Set the backend env var **`DATABASE_URL`** to the database connection string
+- **SQLite on a persistent disk**:
+  - Add a Render Disk (e.g. mount at `/var/data`)
+  - Set **`SQLITE_PATH=/var/data/nba.db`**
+
+### Optional env vars
+- `WEB_CONCURRENCY`: number of Gunicorn workers (default `2`)
 
 ## Usage
 1. Create a group with your display name and a group name.
