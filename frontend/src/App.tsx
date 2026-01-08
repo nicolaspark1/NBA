@@ -95,8 +95,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const stored = useMemo(() => {
-    const raw = localStorage.getItem("btl_session");
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem("btl_session");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      try {
+        localStorage.removeItem("btl_session");
+      } catch {
+        // ignore
+      }
+      return null;
+    }
   }, []);
 
   useEffect(() => {
@@ -120,7 +129,7 @@ export default function App() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setMembers(data);
+        if (!cancelled) setMembers(Array.isArray(data) ? data : []);
       } catch {
         // ignore
       }
@@ -178,43 +187,116 @@ export default function App() {
 
   useEffect(() => {
     if (!group) return;
-    fetch(`${apiBase}/groups/${group.code}/picks?date=${selectedDate}`)
-      .then((res) => res.json())
-      .then(setPicks)
-      .catch(() => setPicks([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/groups/${group.code}/picks?date=${selectedDate}`, {
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError("This group no longer exists. Please create or join a group again.");
+            localStorage.removeItem("btl_session");
+            setGroup(null);
+            setUser(null);
+            setMembers([]);
+            setPicks([]);
+            setView("landing");
+          } else {
+            setPicks([]);
+          }
+          return;
+        }
+        const data = await res.json();
+        setPicks(Array.isArray(data) ? data : []);
+      } catch {
+        setPicks([]);
+      }
+    })();
+    return () => controller.abort();
   }, [group, selectedDate]);
 
   useEffect(() => {
     if (!group) return;
-    fetch(`${apiBase}/groups/${group.code}/leaderboard?date=${selectedDate}`)
-      .then((res) => res.json())
-      .then(setLeaderboard)
-      .catch(() => setLeaderboard([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/groups/${group.code}/leaderboard?date=${selectedDate}`, {
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          setLeaderboard([]);
+          return;
+        }
+        const data = await res.json();
+        setLeaderboard(Array.isArray(data) ? data : []);
+      } catch {
+        setLeaderboard([]);
+      }
+    })();
+    return () => controller.abort();
   }, [group, selectedDate]);
 
   useEffect(() => {
     if (!group) return;
-    fetch(`${apiBase}/groups/${group.code}/leaderboard/alltime`)
-      .then((res) => res.json())
-      .then(setAllTimeLeaderboard)
-      .catch(() => setAllTimeLeaderboard([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/groups/${group.code}/leaderboard/alltime`, {
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          setAllTimeLeaderboard([]);
+          return;
+        }
+        const data = await res.json();
+        setAllTimeLeaderboard(Array.isArray(data) ? data : []);
+      } catch {
+        setAllTimeLeaderboard([]);
+      }
+    })();
+    return () => controller.abort();
   }, [group]);
 
   useEffect(() => {
     if (view !== "pick") return;
-    fetch(`${apiBase}/nba/games?date=${selectedDate}`)
-      .then((res) => res.json())
-      .then(setGames)
-      .catch(() => setGames([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/nba/games?date=${selectedDate}`, {
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          setGames([]);
+          return;
+        }
+        const data = await res.json();
+        setGames(Array.isArray(data) ? data : []);
+      } catch {
+        setGames([]);
+      }
+    })();
+    return () => controller.abort();
   }, [selectedDate, view]);
 
   useEffect(() => {
     if (view !== "pick") return;
-    const url = `${apiBase}/nba/players?date=${selectedDate}&query=${playerQuery}`;
-    fetch(url)
-      .then((res) => res.json())
-      .then(setPlayers)
-      .catch(() => setPlayers([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const url = `${apiBase}/nba/players?date=${selectedDate}&query=${playerQuery}`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) {
+          setPlayers([]);
+          return;
+        }
+        const data = await res.json();
+        setPlayers(Array.isArray(data) ? data : []);
+      } catch {
+        setPlayers([]);
+      }
+    })();
+    return () => controller.abort();
   }, [selectedDate, playerQuery, view]);
 
   const persistSession = (nextGroup: Group, nextUser: User) => {
@@ -270,8 +352,7 @@ export default function App() {
       })
     });
     if (!res.ok) {
-      const message = await res.json();
-      setError(message.detail ?? "Unable to submit pick.");
+      setError(await readError(res));
       return;
     }
     setSelectedPlayer(null);
@@ -285,7 +366,7 @@ export default function App() {
       method: "POST"
     });
     if (!res.ok) {
-      setError("Unable to score day.");
+      setError(await readError(res));
       return;
     }
     const data = await res.json();
