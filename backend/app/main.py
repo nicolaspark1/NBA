@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 import string
 from datetime import date, datetime, time
@@ -7,9 +8,10 @@ from pathlib import Path
 from typing import List
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,8 @@ from .schemas import (
     PickResultOut,
     PickWithUser,
     PlayerOut,
+    GroupOut,
+    UserOut,
 )
 
 app = FastAPI()
@@ -56,6 +60,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    # Render sometimes strips 500 bodies from upstream errors; always return JSON here
+    # so the frontend can show the real error message.
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal Server Error",
+            "error_type": exc.__class__.__name__,
+            "error": str(exc),
+        },
+    )
 
 
 @app.on_event("startup")
@@ -96,7 +118,10 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(group)
     db.refresh(user)
-    return GroupResponse(group=group, user=user)
+    return GroupResponse(
+        group=GroupOut(id=group.id, name=group.name, code=group.code),
+        user=UserOut(id=user.id, display_name=user.display_name),
+    )
 
 
 @app.post("/api/groups/join", response_model=GroupResponse)
@@ -112,7 +137,10 @@ def join_group(payload: GroupJoin, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(group)
     db.refresh(user)
-    return GroupResponse(group=group, user=user)
+    return GroupResponse(
+        group=GroupOut(id=group.id, name=group.name, code=group.code),
+        user=UserOut(id=user.id, display_name=user.display_name),
+    )
 
 
 @app.get("/api/groups/{code}/members", response_model=List[GroupMemberOut])

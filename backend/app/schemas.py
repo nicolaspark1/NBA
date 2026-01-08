@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class GroupCreate(BaseModel):
@@ -15,20 +15,16 @@ class GroupJoin(BaseModel):
 
 
 class GroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     code: str
 
-    class Config:
-        orm_mode = True
-
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     display_name: str
-
-    class Config:
-        orm_mode = True
 
 
 class GroupResponse(BaseModel):
@@ -64,6 +60,7 @@ class PickCreate(BaseModel):
 
 
 class PickOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     group_id: int
     user_id: int
@@ -72,9 +69,6 @@ class PickOut(BaseModel):
     player_name: str
     game_id: Optional[str]
     status: str
-
-    class Config:
-        orm_mode = True
 
 
 class PickWithUser(BaseModel):
