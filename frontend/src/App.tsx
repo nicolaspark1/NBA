@@ -123,26 +123,45 @@ export default function App() {
     setLeaderboard([]);
     setAllTimeLeaderboard([]);
     setPickResults([]);
+    setGroupSearchResults([]);
+    setSelectedGroupForJoin(null);
+    setJoinCode("");
+    setGroupSearchQuery("");
     setView("landing");
     setError(message);
   };
 
   const handleGroupScopedNotFound = async (res: Response) => {
-    // Prefer checking backend's explicit message; misconfigured API base will often return HTML.
+    // Prefer checking backend's explicit message.
+    let detail: string | null = null;
     try {
-      const data = await res.json();
-      if (typeof data?.detail === "string" && data.detail.toLowerCase().includes("group not found")) {
-        resetStaleSession("Your saved session is stale (that group no longer exists). Please create or join a group again.");
-        return;
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        if (typeof data?.detail === "string") detail = data.detail;
       }
     } catch {
       // ignore
     }
 
-    // If we can't confirm "group not found", this is likely an API base / routing issue.
+    if (detail && detail.toLowerCase().includes("group not found")) {
+      resetStaleSession(
+        "Your saved session is stale (that group no longer exists). Please create or join a group again."
+      );
+      return;
+    }
+
+    // If the API health check is succeeding, a 404 on group routes is effectively a stale/invalid session.
+    // Clearing it prevents the app from getting stuck in a broken state.
+    if (apiReachable === true) {
+      resetStaleSession("That group can't be found. Please create or join a group again.");
+      return;
+    }
+
+    // Otherwise, treat it as an API base / routing issue (common with Static Site deployments).
     setApiReachable(false);
     setApiBaseError(
-      `Cannot reach the API at "${apiBase}". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+      `API requests are failing at "${apiBase}". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
     );
   };
 
@@ -529,7 +548,7 @@ export default function App() {
                       ) : groupSearchResults.length === 0 ? (
                         <div className="autocomplete-item muted">No results.</div>
                       ) : (
-                        groupSearchResults.map((g) => (
+                        (Array.isArray(groupSearchResults) ? groupSearchResults : []).map((g) => (
                           <button
                             key={g.id}
                             type="button"
