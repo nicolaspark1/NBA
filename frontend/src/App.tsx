@@ -71,7 +71,12 @@ export default function App() {
     "landing"
   );
   const [displayName, setDisplayName] = useState("");
-  const [groupCode, setGroupCode] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [groupSearchQuery, setGroupSearchQuery] = useState("");
+  const [groupSearchResults, setGroupSearchResults] = useState<Group[]>([]);
+  const [groupSearchLoading, setGroupSearchLoading] = useState(false);
+  const [selectedGroupForJoin, setSelectedGroupForJoin] = useState<Group | null>(null);
   const [group, setGroup] = useState<Group | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -102,12 +107,67 @@ export default function App() {
   }, [stored]);
 
   useEffect(() => {
-    if (!group) return;
-    fetch(`${apiBase}/groups/${group.code}/members`)
-      .then((res) => res.json())
-      .then(setMembers)
-      .catch(() => setMembers([]));
-  }, [group]);
+    if (!group || view !== "group") return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const fetchMembers = async () => {
+      try {
+        const res = await fetch(`${apiBase}/groups/${group.code}/members`, {
+          signal: controller.signal
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setMembers(data);
+      } catch {
+        // ignore
+      }
+    };
+
+    fetchMembers();
+    const interval = window.setInterval(fetchMembers, 10_000);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [group, view]);
+
+  useEffect(() => {
+    const q = groupSearchQuery.trim();
+    setSelectedGroupForJoin(null);
+    if (q.length < 2) {
+      setGroupSearchResults([]);
+      setGroupSearchLoading(false);
+      return;
+    }
+
+    setGroupSearchLoading(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      try {
+        const url = `${apiBase}/groups/search?query=${encodeURIComponent(q)}&limit=10`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) {
+          setGroupSearchResults([]);
+          setGroupSearchLoading(false);
+          return;
+        }
+        const data = await res.json();
+        setGroupSearchResults(Array.isArray(data) ? data : []);
+      } catch {
+        setGroupSearchResults([]);
+      } finally {
+        setGroupSearchLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [groupSearchQuery]);
 
   useEffect(() => {
     if (!group) return;
@@ -161,7 +221,7 @@ export default function App() {
     const res = await fetch(`${apiBase}/groups`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_name: groupCode, display_name: displayName })
+      body: JSON.stringify({ group_name: newGroupName, display_name: displayName })
     });
     if (!res.ok) {
       setError(await readError(res));
@@ -174,10 +234,11 @@ export default function App() {
 
   const joinGroup = async () => {
     setError(null);
+    const code = (selectedGroupForJoin?.code ?? joinCode).trim();
     const res = await fetch(`${apiBase}/groups/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_code: groupCode, display_name: displayName })
+      body: JSON.stringify({ group_code: code, display_name: displayName })
     });
     if (!res.ok) {
       setError(await readError(res));
@@ -260,17 +321,79 @@ export default function App() {
             Display Name
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </label>
-          <label>
-            Group Name / Code
-            <input value={groupCode} onChange={(e) => setGroupCode(e.target.value)} />
-          </label>
-          <div className="actions">
-            <button onClick={createGroup} disabled={!displayName || !groupCode}>
-              Create Group
-            </button>
-            <button onClick={joinGroup} disabled={!displayName || !groupCode}>
-              Join Group
-            </button>
+          <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 16 }}>
+            <div>
+              <h3>Create a new group</h3>
+              <label>
+                Group Name
+                <input
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="e.g. The Dawgs"
+                />
+              </label>
+              <div className="actions">
+                <button onClick={createGroup} disabled={!displayName || !newGroupName}>
+                  Create Group
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <h3>Join an existing group</h3>
+              <label>
+                Search groups (name or code)
+                <input
+                  value={groupSearchQuery}
+                  onChange={(e) => setGroupSearchQuery(e.target.value)}
+                  placeholder="Type at least 2 characters…"
+                />
+              </label>
+
+              {groupSearchLoading && <p>Searching…</p>}
+
+              {!groupSearchLoading &&
+                groupSearchQuery.trim().length >= 2 &&
+                groupSearchResults.length === 0 && <p>No results.</p>}
+
+              {groupSearchResults.length > 0 && (
+                <ul className="list">
+                  {groupSearchResults.map((g) => (
+                    <li key={g.id}>
+                      <button
+                        onClick={() => {
+                          setSelectedGroupForJoin(g);
+                          setJoinCode(g.code);
+                        }}
+                        className={
+                          selectedGroupForJoin?.code === g.code ? "selected" : ""
+                        }
+                      >
+                        <strong>{g.name}</strong> — <span className="code">{g.code}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <label>
+                Or enter code directly
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  placeholder="ABC123"
+                />
+              </label>
+
+              <div className="actions">
+                <button
+                  onClick={joinGroup}
+                  disabled={!displayName || !(selectedGroupForJoin?.code || joinCode.trim())}
+                >
+                  Join Group
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .db import Base, SessionLocal, engine
@@ -152,12 +152,37 @@ def list_members(code: str, db: Session = Depends(get_db)):
         db.query(User.id, User.display_name, GroupMember.joined_at)
         .join(GroupMember, GroupMember.user_id == User.id)
         .filter(GroupMember.group_id == group.id)
+        .order_by(GroupMember.joined_at.asc())
         .all()
     )
     return [
         GroupMemberOut(id=row.id, display_name=row.display_name, joined_at=row.joined_at)
         for row in members
     ]
+
+
+@app.get("/api/groups/search", response_model=List[GroupOut])
+def search_groups(query: str = "", limit: int = 10, db: Session = Depends(get_db)):
+    q = query.strip()
+    if not q:
+        return []
+
+    limit = max(1, min(int(limit), 25))
+    pattern = f"%{q.lower()}%"
+
+    groups = (
+        db.query(Group)
+        .filter(
+            or_(
+                func.lower(Group.name).like(pattern),
+                func.lower(Group.code).like(pattern),
+            )
+        )
+        .order_by(Group.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [GroupOut(id=g.id, name=g.name, code=g.code) for g in groups]
 
 
 @app.get("/api/nba/games", response_model=List[GameOut])
