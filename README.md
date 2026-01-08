@@ -62,7 +62,7 @@ This repo includes a root `Dockerfile` that builds the Vite frontend and serves 
 
 ## Deploy on Render (alternative: separate frontend + backend)
 If you deploy the frontend as a Render **Static Site** and the backend as a Render **Web Service**, set this on the frontend service (build-time env var):
-- `VITE_API_BASE=https://YOUR-BACKEND.onrender.com/api`
+- `VITE_API_BASE=https://YOUR-BACKEND.onrender.com/api` (must include the trailing `/api`)
 
 ## Usage
 1. Create a group with your display name and a group name.

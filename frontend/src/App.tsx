@@ -93,6 +93,8 @@ export default function App() {
   );
   const [pickResults, setPickResults] = useState<PickResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [apiReachable, setApiReachable] = useState<boolean | null>(null);
+  const [apiBaseError, setApiBaseError] = useState<string | null>(null);
 
   const stored = useMemo(() => {
     try {
@@ -107,6 +109,42 @@ export default function App() {
       return null;
     }
   }, []);
+
+  const resetStaleSession = (message: string) => {
+    try {
+      localStorage.removeItem("btl_session");
+    } catch {
+      // ignore
+    }
+    setGroup(null);
+    setUser(null);
+    setMembers([]);
+    setPicks([]);
+    setLeaderboard([]);
+    setAllTimeLeaderboard([]);
+    setPickResults([]);
+    setView("landing");
+    setError(message);
+  };
+
+  const handleGroupScopedNotFound = async (res: Response) => {
+    // Prefer checking backend's explicit message; misconfigured API base will often return HTML.
+    try {
+      const data = await res.json();
+      if (typeof data?.detail === "string" && data.detail.toLowerCase().includes("group not found")) {
+        resetStaleSession("Your saved session is stale (that group no longer exists). Please create or join a group again.");
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    // If we can't confirm "group not found", this is likely an API base / routing issue.
+    setApiReachable(false);
+    setApiBaseError(
+      `Cannot reach the API at "${apiBase}". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+    );
+  };
 
   useEffect(() => {
     if (stored?.group && stored?.user) {
@@ -123,6 +161,35 @@ export default function App() {
     }
   }, [group, view]);
 
+  // Detect misconfigured API base early (common when deploying frontend as a Static Site).
+  useEffect(() => {
+    const controller = new AbortController();
+    setApiReachable(null);
+    setApiBaseError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/healthz`, { signal: controller.signal });
+        if (res.ok) {
+          setApiReachable(true);
+          setApiBaseError(null);
+          return;
+        }
+        setApiReachable(false);
+        setApiBaseError(
+          `API health check failed at "${apiBase}/healthz" (HTTP ${res.status}). If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+        );
+      } catch {
+        setApiReachable(false);
+        setApiBaseError(
+          `API is unreachable at "${apiBase}/healthz". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+        );
+      }
+    })();
+
+    return () => controller.abort();
+  }, [apiBase]);
+
   useEffect(() => {
     if (!group || view !== "group") return;
 
@@ -134,7 +201,10 @@ export default function App() {
         const res = await fetch(`${apiBase}/groups/${group.code}/members`, {
           signal: controller.signal
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (res.status === 404) await handleGroupScopedNotFound(res);
+          return;
+        }
         const data = await res.json();
         if (!cancelled) setMembers(Array.isArray(data) ? data : []);
       } catch {
@@ -201,17 +271,8 @@ export default function App() {
           signal: controller.signal
         });
         if (!res.ok) {
-          if (res.status === 404) {
-            setError("This group no longer exists. Please create or join a group again.");
-            localStorage.removeItem("btl_session");
-            setGroup(null);
-            setUser(null);
-            setMembers([]);
-            setPicks([]);
-            setView("landing");
-          } else {
-            setPicks([]);
-          }
+          if (res.status === 404) await handleGroupScopedNotFound(res);
+          setPicks([]);
           return;
         }
         const data = await res.json();
@@ -232,6 +293,7 @@ export default function App() {
           signal: controller.signal
         });
         if (!res.ok) {
+          if (res.status === 404) await handleGroupScopedNotFound(res);
           setLeaderboard([]);
           return;
         }
@@ -253,6 +315,7 @@ export default function App() {
           signal: controller.signal
         });
         if (!res.ok) {
+          if (res.status === 404) await handleGroupScopedNotFound(res);
           setAllTimeLeaderboard([]);
           return;
         }
@@ -359,6 +422,10 @@ export default function App() {
       })
     });
     if (!res.ok) {
+      if (res.status === 404) {
+        await handleGroupScopedNotFound(res);
+        return;
+      }
       setError(await readError(res));
       return;
     }
@@ -373,12 +440,16 @@ export default function App() {
       method: "POST"
     });
     if (!res.ok) {
+      if (res.status === 404) {
+        await handleGroupScopedNotFound(res);
+        return;
+      }
       setError(await readError(res));
       return;
     }
     const data = await res.json();
-    setLeaderboard(data.leaderboard ?? []);
-    setPickResults(data.picks_with_results ?? []);
+    setLeaderboard(Array.isArray(data?.leaderboard) ? data.leaderboard : []);
+    setPickResults(Array.isArray(data?.picks_with_results) ? data.picks_with_results : []);
     setView("results");
   };
 
@@ -407,6 +478,7 @@ export default function App() {
         )}
       </header>
 
+      {apiBaseError && <div className="error">{apiBaseError}</div>}
       {error && <div className="error">{error}</div>}
 
       {view === "landing" && (
@@ -525,18 +597,18 @@ export default function App() {
             </div>
             <h3>Members</h3>
             <ul>
-              {members.map((member) => (
+              {(Array.isArray(members) ? members : []).map((member) => (
                 <li key={member.id}>{member.display_name}</li>
               ))}
             </ul>
           </div>
           <div className="card">
             <h3>Today’s Picks</h3>
-            {picks.length === 0 ? (
+            {(Array.isArray(picks) ? picks : []).length === 0 ? (
               <p>No picks yet for this date.</p>
             ) : (
               <ul className="list">
-                {picks.map((pick) => (
+                {(Array.isArray(picks) ? picks : []).map((pick) => (
                   <li key={pick.id}>
                     <strong>{pick.user_name}</strong>: {pick.player_name} ({pick.status})
                   </li>
@@ -562,7 +634,7 @@ export default function App() {
             <div className="games">
               <h3>Games</h3>
               <ul>
-                {games.map((game) => (
+                {(Array.isArray(games) ? games : []).map((game) => (
                   <li key={game.game_id}>
                     {game.away_team} @ {game.home_team} — {game.start_time}
                   </li>
@@ -578,7 +650,7 @@ export default function App() {
               onChange={(e) => setPlayerQuery(e.target.value)}
             />
             <ul className="list">
-              {players.map((player) => (
+              {(Array.isArray(players) ? players : []).map((player) => (
                 <li key={`${player.game_id}-${player.player_id}`}>
                   <button
                     className={
@@ -609,11 +681,11 @@ export default function App() {
         <div className="grid">
           <div className="card">
             <h2>Daily Leaderboard</h2>
-            {leaderboard.length === 0 ? (
+            {(Array.isArray(leaderboard) ? leaderboard : []).length === 0 ? (
               <p>No scores yet.</p>
             ) : (
               <ol>
-                {leaderboard.map((row) => (
+                {(Array.isArray(leaderboard) ? leaderboard : []).map((row) => (
                   <li key={row.user_id}>
                     {row.user_name}: {row.score.toFixed(1)}
                   </li>
@@ -621,11 +693,11 @@ export default function App() {
               </ol>
             )}
             <h3>All-Time</h3>
-            {allTimeLeaderboard.length === 0 ? (
+            {(Array.isArray(allTimeLeaderboard) ? allTimeLeaderboard : []).length === 0 ? (
               <p>No all-time scores yet.</p>
             ) : (
               <ol>
-                {allTimeLeaderboard.map((row) => (
+                {(Array.isArray(allTimeLeaderboard) ? allTimeLeaderboard : []).map((row) => (
                   <li key={row.user_id}>
                     {row.user_name}: {row.score.toFixed(1)}
                   </li>
@@ -636,10 +708,10 @@ export default function App() {
           </div>
           <div className="card">
             <h2>Pick Breakdown</h2>
-            {pickResults.length === 0 ? (
+            {(Array.isArray(pickResults) ? pickResults : []).length === 0 ? (
               <p>No pick results yet.</p>
             ) : (
-              pickResults.map((result) => (
+              (Array.isArray(pickResults) ? pickResults : []).map((result) => (
                 <div key={result.pick_id} className="breakdown">
                   <h4>Pick #{result.pick_id} — Score {result.score.toFixed(1)}</h4>
                   <table>
@@ -652,7 +724,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.keys(result.breakdown.expected).map((stat) => (
+                      {Object.keys(result.breakdown.expected ?? {}).map((stat) => (
                         <tr key={stat}>
                           <td>{stat}</td>
                           <td>{result.breakdown.expected[stat].toFixed(1)}</td>

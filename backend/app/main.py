@@ -91,6 +91,11 @@ def healthz():
     return {"ok": True}
 
 
+@app.get("/api/healthz")
+def api_healthz():
+    return {"ok": True}
+
+
 def generate_code() -> str:
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
