@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, ConfigDict
 
@@ -57,18 +57,6 @@ class PickCreate(BaseModel):
     date: date
     player_id: int
     player_name: str
-
-
-class PickOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    group_id: int
-    user_id: int
-    date: date
-    player_id: int
-    player_name: str
-    game_id: Optional[str]
-    status: str
 
 
 class PickWithUser(BaseModel):

@@ -116,6 +116,13 @@ export default function App() {
     }
   }, [stored]);
 
+  // Prevent "blank screen" states where view expects a group but none is loaded.
+  useEffect(() => {
+    if (!group && view !== "landing") {
+      setView("landing");
+    }
+  }, [group, view]);
+
   useEffect(() => {
     if (!group || view !== "group") return;
 

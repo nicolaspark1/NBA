@@ -1,0 +1,10 @@
+# Development / test dependencies (optional)
+# Install with: pip install -r backend/requirements-dev.txt
+-r backend/requirements.txt
+alembic==1.12.1
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+

@@ -20,6 +20,11 @@ uvicorn app.main:app --reload
 
 The API runs on `http://localhost:8000`.
 
+Optional (dev/tests only):
+```bash
+pip install -r requirements-dev.txt
+```
+
 ### Frontend
 ```bash
 cd frontend
