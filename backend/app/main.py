@@ -24,9 +24,15 @@ from .models import (
     PickStatus,
     PlayerExpectedStat,
     PlayerGameStat,
+    PlayerSportsbookLine,
     User,
 )
-from .nba import get_box_score_for_player, get_games_by_date, get_players_for_game
+from .nba import (
+    get_box_score_for_player,
+    get_games_by_date,
+    get_player_name,
+    get_players_for_game,
+)
 from .scoring import compute_expected_stats, score_pick
 from .schemas import (
     GameOut,
@@ -40,9 +46,13 @@ from .schemas import (
     PickResultOut,
     PickWithUser,
     PlayerOut,
+    PlayerProjectionResponse,
+    RecentGamesProjectionOut,
+    SportsbookLinesOut,
     GroupOut,
     UserOut,
 )
+from .sportsbook import get_sportsbook_provider
 
 app = FastAPI()
 
@@ -205,6 +215,125 @@ def list_players(date: str, query: str = ""):
     if query:
         players = [p for p in players if query.lower() in p["player_name"].lower()]
     return [PlayerOut(**player) for player in players]
+
+
+@app.get("/api/nba/games/{game_id}/players", response_model=List[PlayerOut])
+def list_players_for_game(game_id: str):
+    players = get_players_for_game(game_id)
+    return [PlayerOut(**p) for p in players]
+
+
+@app.get("/api/nba/players/{player_id}/projection", response_model=PlayerProjectionResponse)
+def player_projection(
+    player_id: int,
+    date: str,
+    game_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    target_date = datetime.strptime(date, "%Y-%m-%d").date()
+
+    # Prefer player name from the requested game context if provided.
+    player_name = None
+    if game_id:
+        try:
+            game_players = get_players_for_game(game_id)
+            for p in game_players:
+                if int(p.get("player_id")) == int(player_id):
+                    player_name = str(p.get("player_name"))
+                    break
+        except Exception:
+            player_name = None
+    if not player_name:
+        player_name = get_player_name(player_id)
+
+    # Always compute or load recent-games expected stats (fallback projection).
+    expected = (
+        db.query(PlayerExpectedStat)
+        .filter_by(player_id=player_id, date=target_date)
+        .first()
+    )
+    if not expected:
+        expected = compute_expected_stats(player_id, target_date)
+        db.add(expected)
+        db.commit()
+        db.refresh(expected)
+
+    recent = RecentGamesProjectionOut(
+        n_games_used=expected.n_games_used,
+        points=float(expected.exp_points),
+        assists=float(expected.exp_assists),
+        rebounds=float(expected.exp_rebounds),
+        steals=float(expected.exp_steals),
+        blocks=float(expected.exp_blocks),
+        turnovers=float(expected.exp_turnovers),
+        personal_fouls=float(expected.exp_personal_fouls),
+    )
+
+    sportsbook_out: SportsbookLinesOut | None = None
+    source = "recent_games"
+    last_updated = expected.computed_at
+
+    provider = get_sportsbook_provider()
+    if provider:
+        provider_name = getattr(provider, "provider_name", "sportsbook_provider")
+        cached = (
+            db.query(PlayerSportsbookLine)
+            .filter_by(player_id=player_id, date=target_date, provider=provider_name)
+            .first()
+        )
+        if cached and isinstance(cached.lines_json, dict) and cached.lines_json:
+            sportsbook_out = SportsbookLinesOut(
+                provider=provider_name,
+                last_updated=cached.fetched_at,
+                lines={k: float(v) for k, v in cached.lines_json.items()},
+            )
+            source = "sportsbook_provider"
+            last_updated = cached.fetched_at
+        else:
+            try:
+                result = provider.get_player_lines(
+                    player_id=player_id,
+                    player_name=player_name,
+                    date_str=date,
+                    game_id=game_id,
+                )
+            except Exception:
+                result = None
+
+            if result and result.lines:
+                record = cached or PlayerSportsbookLine(
+                    date=target_date,
+                    game_id=game_id,
+                    player_id=player_id,
+                    player_name=player_name,
+                    provider=provider_name,
+                    lines_json={},
+                )
+                record.game_id = game_id
+                record.player_name = player_name
+                record.lines_json = result.lines
+                record.fetched_at = result.last_updated
+                db.add(record)
+                db.commit()
+
+                sportsbook_out = SportsbookLinesOut(
+                    provider=provider_name,
+                    last_updated=result.last_updated,
+                    lines={k: float(v) for k, v in result.lines.items()},
+                )
+                source = "sportsbook_provider"
+                last_updated = result.last_updated
+
+    return PlayerProjectionResponse(
+        player_id=player_id,
+        player_name=player_name,
+        date=target_date,
+        game_id=game_id,
+        source=source,
+        last_updated=last_updated,
+        recent_games=recent,
+        sportsbook=sportsbook_out,
+    )
 
 
 @app.post("/api/groups/{code}/picks", response_model=PickWithUser)

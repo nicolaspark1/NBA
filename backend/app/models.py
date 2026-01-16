@@ -111,6 +111,20 @@ class PlayerExpectedStat(Base):
     computed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PlayerSportsbookLine(Base):
+    __tablename__ = "player_sportsbook_lines"
+    __table_args__ = (UniqueConstraint("player_id", "date", "provider"),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    game_id = Column(String, nullable=True)
+    player_id = Column(Integer, nullable=False)
+    player_name = Column(String, nullable=True)
+    provider = Column(String, nullable=False)
+    lines_json = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class PickResult(Base):
     __tablename__ = "pick_results"
 

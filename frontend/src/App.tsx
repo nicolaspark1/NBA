@@ -30,6 +30,30 @@ type Player = {
 
 type LeaderboardRow = { user_id: number; user_name: string; score: number };
 
+type PlayerProjection = {
+  player_id: number;
+  player_name: string;
+  date: string;
+  game_id?: string | null;
+  source: string;
+  last_updated: string;
+  recent_games?: {
+    n_games_used: number;
+    points: number;
+    assists: number;
+    rebounds: number;
+    steals: number;
+    blocks: number;
+    turnovers: number;
+    personal_fouls: number;
+  } | null;
+  sportsbook?: {
+    provider: string;
+    last_updated: string;
+    lines: Record<string, number>;
+  } | null;
+};
+
 type PickResult = {
   pick_id: number;
   score: number;
@@ -84,9 +108,13 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(today());
   const [picks, setPicks] = useState<PickRow[]>([]);
   const [games, setGames] = useState<Game[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [gamePlayers, setGamePlayers] = useState<Player[]>([]);
+  const [playersLoading, setPlayersLoading] = useState(false);
   const [playerQuery, setPlayerQuery] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [projection, setProjection] = useState<PlayerProjection | null>(null);
+  const [projectionLoading, setProjectionLoading] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [allTimeLeaderboard, setAllTimeLeaderboard] = useState<LeaderboardRow[]>(
     []
@@ -370,23 +398,70 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "pick") return;
+    // Reset game/player state when the date changes.
+    setSelectedGameId(null);
+    setGamePlayers([]);
+    setSelectedPlayer(null);
+    setProjection(null);
+    setPlayerQuery("");
+  }, [selectedDate, view]);
+
+  useEffect(() => {
+    if (view !== "pick" || !selectedGameId) return;
     const controller = new AbortController();
+    setPlayersLoading(true);
+    setGamePlayers([]);
+    setSelectedPlayer(null);
+    setProjection(null);
+
     (async () => {
       try {
-        const url = `${apiBase}/nba/players?date=${selectedDate}&query=${playerQuery}`;
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(`${apiBase}/nba/games/${selectedGameId}/players`, {
+          signal: controller.signal
+        });
         if (!res.ok) {
-          setPlayers([]);
+          setGamePlayers([]);
           return;
         }
         const data = await res.json();
-        setPlayers(Array.isArray(data) ? data : []);
+        setGamePlayers(Array.isArray(data) ? data : []);
       } catch {
-        setPlayers([]);
+        setGamePlayers([]);
+      } finally {
+        setPlayersLoading(false);
       }
     })();
+
     return () => controller.abort();
-  }, [selectedDate, playerQuery, view]);
+  }, [selectedGameId, view]);
+
+  useEffect(() => {
+    if (view !== "pick" || !selectedPlayer) return;
+    const controller = new AbortController();
+    setProjectionLoading(true);
+    setProjection(null);
+
+    (async () => {
+      try {
+        const url = `${apiBase}/nba/players/${selectedPlayer.player_id}/projection?date=${selectedDate}&game_id=${encodeURIComponent(
+          selectedPlayer.game_id
+        )}`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) {
+          setProjection(null);
+          return;
+        }
+        const data = await res.json();
+        setProjection(data && typeof data === "object" ? data : null);
+      } catch {
+        setProjection(null);
+      } finally {
+        setProjectionLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [selectedPlayer, selectedDate, view]);
 
   const persistSession = (nextGroup: Group, nextUser: User) => {
     setGroup(nextGroup);
@@ -641,7 +716,7 @@ export default function App() {
       {view === "pick" && group && (
         <div className="grid">
           <div className="card">
-            <h2>Make a Pick</h2>
+            <h2>Schedule</h2>
             <label>
               Pick Date
               <input
@@ -651,37 +726,129 @@ export default function App() {
               />
             </label>
             <div className="games">
-              <h3>Games</h3>
+              <h3>Today’s Games</h3>
               <ul>
                 {(Array.isArray(games) ? games : []).map((game) => (
                   <li key={game.game_id}>
-                    {game.away_team} @ {game.home_team} — {game.start_time}
+                    <button
+                      className={selectedGameId === game.game_id ? "selected" : ""}
+                      onClick={() => setSelectedGameId(game.game_id)}
+                      type="button"
+                    >
+                      {game.away_team} @ {game.home_team} — {game.start_time}
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
           </div>
           <div className="card">
-            <h3>Search Players</h3>
-            <input
-              placeholder="Search player"
-              value={playerQuery}
-              onChange={(e) => setPlayerQuery(e.target.value)}
-            />
-            <ul className="list">
-              {(Array.isArray(players) ? players : []).map((player) => (
-                <li key={`${player.game_id}-${player.player_id}`}>
-                  <button
-                    className={
-                      selectedPlayer?.player_id === player.player_id ? "selected" : ""
-                    }
-                    onClick={() => setSelectedPlayer(player)}
-                  >
-                    {player.player_name} ({player.team})
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <h3>Game Players</h3>
+            {!selectedGameId ? (
+              <p>Select a game to view players.</p>
+            ) : (
+              <>
+                <input
+                  placeholder="Filter players"
+                  value={playerQuery}
+                  onChange={(e) => setPlayerQuery(e.target.value)}
+                />
+
+                {playersLoading ? (
+                  <p>Loading players…</p>
+                ) : (
+                  <ul className="list">
+                    {(Array.isArray(gamePlayers) ? gamePlayers : [])
+                      .filter((p) =>
+                        playerQuery.trim()
+                          ? p.player_name.toLowerCase().includes(playerQuery.toLowerCase())
+                          : true
+                      )
+                      .map((player) => (
+                        <li key={`${player.game_id}-${player.player_id}`}>
+                          <button
+                            className={
+                              selectedPlayer?.player_id === player.player_id ? "selected" : ""
+                            }
+                            onClick={() => setSelectedPlayer(player)}
+                          >
+                            {player.player_name} ({player.team})
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+
+                <div style={{ marginTop: "1rem" }}>
+                  <h3>Projected Stats</h3>
+                  {!selectedPlayer ? (
+                    <p>Select a player to see projections.</p>
+                  ) : projectionLoading ? (
+                    <p>Loading projection…</p>
+                  ) : !projection ? (
+                    <p>No projection available.</p>
+                  ) : (
+                    <div className="breakdown">
+                      <p style={{ marginTop: 0 }}>
+                        <strong>{projection.player_name}</strong> —{" "}
+                        {projection.source === "sportsbook_provider"
+                          ? "Sportsbook line"
+                          : "Recent-games projection"}
+                      </p>
+
+                      {projection.sportsbook?.lines &&
+                        Object.keys(projection.sportsbook.lines).length > 0 && (
+                          <>
+                            <h4>Sportsbook lines</h4>
+                            <ul className="list">
+                              {Object.entries(projection.sportsbook.lines).map(([k, v]) => (
+                                <li key={k}>
+                                  <strong>{k.toUpperCase()}</strong>: {v}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+
+                      {projection.recent_games && (
+                        <>
+                          <h4>Recent-games projection</h4>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Stat</th>
+                                <th>Projected</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(
+                                [
+                                  ["points", projection.recent_games.points],
+                                  ["assists", projection.recent_games.assists],
+                                  ["rebounds", projection.recent_games.rebounds],
+                                  ["steals", projection.recent_games.steals],
+                                  ["blocks", projection.recent_games.blocks],
+                                  ["turnovers", projection.recent_games.turnovers],
+                                  ["personal_fouls", projection.recent_games.personal_fouls]
+                                ] as const
+                              ).map(([stat, value]) => (
+                                <tr key={stat}>
+                                  <td>{stat}</td>
+                                  <td>{value.toFixed(1)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <p style={{ marginBottom: 0, color: "#64748b" }}>
+                            Based on last {projection.recent_games.n_games_used} games.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             <button
               onClick={submitPick}
               disabled={!selectedPlayer}

@@ -74,10 +74,18 @@ If you deploy the frontend as a Render **Static Site** and the backend as a Rend
 - `POST /api/groups`
 - `POST /api/groups/join`
 - `GET /api/groups/{code}/members`
+- `GET /api/groups/search?query=...&limit=...`
 - `GET /api/nba/games?date=YYYY-MM-DD`
-- `GET /api/nba/players?date=YYYY-MM-DD&query=...`
+- `GET /api/nba/games/{game_id}/players`
+- `GET /api/nba/players?date=YYYY-MM-DD&query=...` (legacy convenience endpoint)
+- `GET /api/nba/players/{player_id}/projection?date=YYYY-MM-DD&game_id=...`
 - `POST /api/groups/{code}/picks`
 - `GET /api/groups/{code}/picks?date=YYYY-MM-DD`
 - `POST /api/groups/{code}/score?date=YYYY-MM-DD`
 - `GET /api/groups/{code}/leaderboard?date=YYYY-MM-DD`
 - `GET /api/groups/{code}/leaderboard/alltime`
+
+## Optional sportsbook lines (no scraping)
+By default, projections use a **recent-games** baseline (last N games average).
+
+If you set **`ODDS_API_KEY`**, the backend will attempt to pull **player prop lines** from a real odds/lines provider (best-effort) and fall back to recent-games when lines are unavailable.

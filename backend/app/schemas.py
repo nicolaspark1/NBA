@@ -52,6 +52,34 @@ class PlayerOut(BaseModel):
     game_id: str
 
 
+class RecentGamesProjectionOut(BaseModel):
+    n_games_used: int
+    points: float
+    assists: float
+    rebounds: float
+    steals: float
+    blocks: float
+    turnovers: float
+    personal_fouls: float
+
+
+class SportsbookLinesOut(BaseModel):
+    provider: str
+    last_updated: datetime
+    lines: Dict[str, float]
+
+
+class PlayerProjectionResponse(BaseModel):
+    player_id: int
+    player_name: str
+    date: date
+    game_id: str | None = None
+    source: str
+    last_updated: datetime
+    recent_games: RecentGamesProjectionOut | None = None
+    sportsbook: SportsbookLinesOut | None = None
+
+
 class PickCreate(BaseModel):
     user_id: int
     date: date

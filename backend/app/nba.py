@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List
 
 from nba_api.stats.endpoints import BoxScoreTraditionalV2, PlayerGameLog, ScoreboardV2
+from nba_api.stats.static import players as nba_players
 
 
 def get_games_by_date(date_str: str) -> List[Dict[str, str]]:
@@ -91,3 +92,12 @@ def get_recent_games(player_id: int, end_date: str, n_games: int) -> List[Dict[s
         if len(results) >= n_games:
             break
     return results
+
+
+def get_player_name(player_id: int) -> str:
+    info = nba_players.find_player_by_id(player_id)
+    if info and isinstance(info, dict):
+        name = info.get("full_name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return str(player_id)
