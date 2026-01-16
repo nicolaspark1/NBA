@@ -727,19 +727,23 @@ export default function App() {
             </label>
             <div className="games">
               <h3>Today’s Games</h3>
-              <ul>
-                {(Array.isArray(games) ? games : []).map((game) => (
-                  <li key={game.game_id}>
-                    <button
-                      className={selectedGameId === game.game_id ? "selected" : ""}
-                      onClick={() => setSelectedGameId(game.game_id)}
-                      type="button"
-                    >
-                      {game.away_team} @ {game.home_team} — {game.start_time}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {(Array.isArray(games) ? games : []).length === 0 ? (
+                <p>No games found for this date.</p>
+              ) : (
+                <ul>
+                  {(Array.isArray(games) ? games : []).map((game) => (
+                    <li key={game.game_id}>
+                      <button
+                        className={selectedGameId === game.game_id ? "selected" : ""}
+                        onClick={() => setSelectedGameId(game.game_id)}
+                        type="button"
+                      >
+                        {game.away_team} @ {game.home_team} — {game.start_time}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
           <div className="card">

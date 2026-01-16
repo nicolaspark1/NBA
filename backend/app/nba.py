@@ -7,8 +7,24 @@ from nba_api.stats.endpoints import BoxScoreTraditionalV2, PlayerGameLog, Scoreb
 from nba_api.stats.static import players as nba_players
 
 
+def _normalize_scoreboard_date(date_str: str) -> str:
+    """
+    ScoreboardV2 expects MM/DD/YYYY.
+    Our API accepts YYYY-MM-DD (from <input type="date">) and MM/DD/YYYY.
+    """
+    s = (date_str or "").strip()
+    if not s:
+        raise ValueError("date is required")
+    if "-" in s:
+        # YYYY-MM-DD
+        return datetime.strptime(s, "%Y-%m-%d").strftime("%m/%d/%Y")
+    # Assume already MM/DD/YYYY
+    return s
+
+
 def get_games_by_date(date_str: str) -> List[Dict[str, str]]:
-    scoreboard = ScoreboardV2(game_date=date_str)
+    scoreboard_date = _normalize_scoreboard_date(date_str)
+    scoreboard = ScoreboardV2(game_date=scoreboard_date)
     games = scoreboard.game_header.get_dict()["data"]
     teams = scoreboard.line_score.get_dict()["data"]
     team_map = {}
