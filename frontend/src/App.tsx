@@ -384,12 +384,14 @@ export default function App() {
           signal: controller.signal
         });
         if (!res.ok) {
+          setError(await readError(res));
           setGames([]);
           return;
         }
         const data = await res.json();
         setGames(Array.isArray(data) ? data : []);
       } catch {
+        setError("Unable to load NBA schedule. Please try again.");
         setGames([]);
       }
     })();

@@ -24,7 +24,7 @@ def _normalize_scoreboard_date(date_str: str) -> str:
 
 def get_games_by_date(date_str: str) -> List[Dict[str, str]]:
     scoreboard_date = _normalize_scoreboard_date(date_str)
-    scoreboard = ScoreboardV2(game_date=scoreboard_date)
+    scoreboard = ScoreboardV2(game_date=scoreboard_date, league_id="00", day_offset=0)
     games = scoreboard.game_header.get_dict()["data"]
     teams = scoreboard.line_score.get_dict()["data"]
     team_map = {}

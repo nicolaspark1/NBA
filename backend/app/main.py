@@ -202,8 +202,14 @@ def search_groups(query: str = "", limit: int = 10, db: Session = Depends(get_db
 
 @app.get("/api/nba/games", response_model=List[GameOut])
 def list_games(date: str):
-    games = get_games_by_date(date)
-    return [GameOut(**game) for game in games]
+    try:
+        games = get_games_by_date(date)
+        return [GameOut(**game) for game in games]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"NBA schedule unavailable right now ({exc.__class__.__name__}). Try again shortly.",
+        )
 
 
 @app.get("/api/nba/players", response_model=List[PlayerOut])
