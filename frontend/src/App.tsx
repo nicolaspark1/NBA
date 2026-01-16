@@ -216,15 +216,38 @@ export default function App() {
 
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/healthz`, { signal: controller.signal });
-        if (res.ok) {
+        // Preferred: /api/healthz when apiBase ends with /api
+        const primary = `${apiBase}/healthz`;
+        const primaryRes = await fetch(primary, { signal: controller.signal });
+        if (primaryRes.ok) {
           setApiReachable(true);
           setApiBaseError(null);
           return;
         }
+
+        // Fallbacks:
+        // - If apiBase is "/api", older deployments may only expose "/healthz".
+        // - If apiBase is "https://host/api", some setups expose "https://host/healthz".
+        const fallbacks: string[] = [];
+        if (apiBase === "/api") fallbacks.push("/healthz");
+        if (apiBase.endsWith("/api")) fallbacks.push(`${apiBase.slice(0, -4)}/healthz`);
+
+        for (const url of fallbacks) {
+          try {
+            const res = await fetch(url, { signal: controller.signal });
+            if (res.ok) {
+              setApiReachable(true);
+              setApiBaseError(null);
+              return;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         setApiReachable(false);
         setApiBaseError(
-          `API health check failed at "${apiBase}/healthz" (HTTP ${res.status}). If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+          `API health check failed (tried "${primary}" plus fallbacks). If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
         );
       } catch {
         setApiReachable(false);
