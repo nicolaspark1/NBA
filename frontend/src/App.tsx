@@ -391,7 +391,9 @@ export default function App() {
         const data = await res.json();
         setGames(Array.isArray(data) ? data : []);
       } catch {
-        setError("Unable to load NBA schedule. Please try again.");
+        setError(
+          `Unable to load NBA schedule. Please try again. (API: ${apiBase}/nba/games)`
+        );
         setGames([]);
       }
     })();

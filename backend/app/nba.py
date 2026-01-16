@@ -1,10 +1,40 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from typing import Dict, List
 
 from nba_api.stats.endpoints import BoxScoreTraditionalV2, PlayerGameLog, ScoreboardV2
 from nba_api.stats.static import players as nba_players
+from nba_api.library.http import NBAStatsHTTP
+
+
+def _configure_nba_stats_headers() -> None:
+    """
+    stats.nba.com often blocks non-browser clients (common on Render).
+    nba_api uses NBAStatsHTTP.headers for requests; set browser-like defaults.
+    """
+    user_agent = os.getenv(
+        "NBA_API_USER_AGENT",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
+    )
+    NBAStatsHTTP.headers.update(
+        {
+            "User-Agent": user_agent,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://stats.nba.com",
+            "Referer": "https://stats.nba.com/",
+            "Connection": "keep-alive",
+            "x-nba-stats-origin": "stats",
+            "x-nba-stats-token": "true",
+        }
+    )
+
+
+_configure_nba_stats_headers()
 
 
 def _normalize_scoreboard_date(date_str: str) -> str:

@@ -89,3 +89,9 @@ If you deploy the frontend as a Render **Static Site** and the backend as a Rend
 By default, projections use a **recent-games** baseline (last N games average).
 
 If you set **`ODDS_API_KEY`**, the backend will attempt to pull **player prop lines** from a real odds/lines provider (best-effort) and fall back to recent-games when lines are unavailable.
+
+## NBA stats provider notes (Render)
+The backend uses `nba_api` (which calls `stats.nba.com`). In some hosting environments, the NBA site may block non-browser requests.
+
+If you see schedule/projection errors in production, you can set:
+- `NBA_API_USER_AGENT`: override the User-Agent sent to `stats.nba.com` (defaults to a modern Chrome UA).
