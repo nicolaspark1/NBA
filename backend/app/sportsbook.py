@@ -226,13 +226,13 @@ class OddsApiProvider(SportsbookProvider):
         self, *, player_id: int, player_name: str, date_str: str, game_id: str | None
     ) -> Optional[SportsbookResult]:
         # This is a best-effort implementation. Odds API schemas vary by market/plan.
-        # We attempt to pull player points/assists/rebounds/PRA if present.
+        # We attempt to pull separate player points / rebounds / assists (NOT PRA).
         base = "https://api.the-odds-api.com/v4"
         params = {
             "apiKey": self.api_key,
             "regions": "us",
             # Common player prop market keys (may require a paid tier).
-            "markets": "player_points,player_rebounds,player_assists,player_points_rebounds_assists",
+            "markets": "player_points,player_rebounds,player_assists",
             "oddsFormat": "american",
         }
         url = f"{base}/sports/basketball_nba/odds"
@@ -242,6 +242,15 @@ class OddsApiProvider(SportsbookProvider):
 
         # Best-effort parse: find outcomes matching player name.
         lines: Dict[str, float] = {}
+        wanted = _normalize_name(player_name)
+        if not wanted:
+            return None
+
+        preferred_books = [
+            b.strip().lower()
+            for b in (os.getenv("ODDS_API_BOOKMAKERS") or "draftkings,fanduel").split(",")
+            if b.strip()
+        ]
 
         def _maybe_set(key: str, value: Any) -> None:
             try:
@@ -253,16 +262,29 @@ class OddsApiProvider(SportsbookProvider):
 
         for event in events if isinstance(events, list) else []:
             bookmakers = event.get("bookmakers") if isinstance(event, dict) else None
-            for book in bookmakers if isinstance(bookmakers, list) else []:
+            books = [b for b in bookmakers if isinstance(bookmakers, list) and isinstance(b, dict)]
+            # Prefer a specific bookmaker if available (improves consistency).
+            if preferred_books:
+                preferred = [b for b in books if str(b.get("key") or "").lower() in preferred_books]
+                books = preferred or books
+
+            for book in books:
                 markets = book.get("markets") if isinstance(book, dict) else None
                 for market in markets if isinstance(markets, list) else []:
                     market_key = market.get("key")
                     outcomes = market.get("outcomes") if isinstance(market, dict) else None
                     for outcome in outcomes if isinstance(outcomes, list) else []:
-                        name = outcome.get("description") or outcome.get("name")
-                        if not isinstance(name, str):
+                        # For player props, Odds API commonly uses:
+                        # - outcome["name"] == "Over"/"Under"
+                        # - outcome["description"] == "<Player Name>"
+                        candidate = (
+                            outcome.get("description")
+                            or outcome.get("participant")
+                            or outcome.get("name")
+                        )
+                        if not isinstance(candidate, str) or not candidate.strip():
                             continue
-                        if player_name.lower() not in name.lower():
+                        if not _name_match(candidate, wanted):
                             continue
                         # The "point" value is the line for many props.
                         point = outcome.get("point")
@@ -272,8 +294,17 @@ class OddsApiProvider(SportsbookProvider):
                             _maybe_set("rebounds", point)
                         elif market_key == "player_assists":
                             _maybe_set("assists", point)
-                        elif market_key == "player_points_rebounds_assists":
-                            _maybe_set("pra", point)
+                        # Stop early if we found all three.
+                        if (
+                            "points" in lines
+                            and "rebounds" in lines
+                            and "assists" in lines
+                        ):
+                            return SportsbookResult(
+                                provider=self.provider_name,
+                                last_updated=datetime.now(timezone.utc),
+                                lines=lines,
+                            )
 
         if not lines:
             return None

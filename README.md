@@ -92,6 +92,7 @@ By default, projections prefer **sportsbook player prop lines** (separate **Poin
 You can configure a provider:
 - **DraftKings (recommended)**: set **`DRAFTKINGS_PROPS_URL`** to a DraftKings **JSON** endpoint (no HTML scraping).
 - **Odds API**: set **`ODDS_API_KEY`** (plan/markets must include NBA player props).
+  - Optional: `ODDS_API_BOOKMAKERS=draftkings,fanduel` to prefer specific bookmakers when multiple are returned.
 
 Optional provider selector:
 - `PROJECTIONS_PROVIDER=draftkings` (or `odds_api`)
