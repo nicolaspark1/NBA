@@ -99,6 +99,7 @@ class PlayerProjectionResponse(BaseModel):
     date: date
     game_id: str | None = None
     source: str
+    reason: str | None = None
     last_updated: datetime
     recent_games: RecentGamesProjectionOut | None = None
     sportsbook: SportsbookLinesOut | None = None

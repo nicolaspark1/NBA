@@ -444,31 +444,40 @@ def player_projection(
     if not player_name:
         player_name = get_player_name(player_id)
 
+    reason: str | None = None
     recent: RecentGamesProjectionOut | None = None
     expected: PlayerExpectedStat | None = None
     # Only attempt NBA Stats projections for real NBA Stats player ids.
     if nba_players.find_player_by_id(int(player_id)):
-        expected = (
-            db.query(PlayerExpectedStat)
-            .filter_by(player_id=player_id, date=target_date)
-            .first()
-        )
-        if not expected:
-            expected = compute_expected_stats(player_id, target_date)
-            db.add(expected)
-            db.commit()
-            db.refresh(expected)
+        try:
+            expected = (
+                db.query(PlayerExpectedStat)
+                .filter_by(player_id=player_id, date=target_date)
+                .first()
+            )
+            if not expected:
+                expected = compute_expected_stats(player_id, target_date)
+                db.add(expected)
+                db.commit()
+                db.refresh(expected)
 
-        recent = RecentGamesProjectionOut(
-            n_games_used=expected.n_games_used,
-            points=float(expected.exp_points),
-            assists=float(expected.exp_assists),
-            rebounds=float(expected.exp_rebounds),
-            steals=float(expected.exp_steals),
-            blocks=float(expected.exp_blocks),
-            turnovers=float(expected.exp_turnovers),
-            personal_fouls=float(expected.exp_personal_fouls),
-        )
+            recent = RecentGamesProjectionOut(
+                n_games_used=expected.n_games_used,
+                points=float(expected.exp_points),
+                assists=float(expected.exp_assists),
+                rebounds=float(expected.exp_rebounds),
+                steals=float(expected.exp_steals),
+                blocks=float(expected.exp_blocks),
+                turnovers=float(expected.exp_turnovers),
+                personal_fouls=float(expected.exp_personal_fouls),
+            )
+        except Exception as exc:
+            # Don't fail the entire request; the UI should render `Proj: —` with a reason.
+            reason = f"recent-games projection unavailable ({exc.__class__.__name__})"
+            recent = None
+            expected = None
+    else:
+        reason = "projection unavailable for non-NBA player id"
 
     sportsbook_out: SportsbookLinesOut | None = None
     source = "recent_games" if recent else "unavailable"
@@ -524,6 +533,7 @@ def player_projection(
                 )
                 source = "sportsbook_provider"
                 last_updated = result.last_updated
+                reason = None
 
     return PlayerProjectionResponse(
         player_id=player_id,
@@ -531,6 +541,7 @@ def player_projection(
         date=target_date,
         game_id=game_id,
         source=source,
+        reason=reason,
         last_updated=last_updated,
         recent_games=recent,
         sportsbook=sportsbook_out,

@@ -57,6 +57,7 @@ type PlayerProjection = {
   date: string;
   game_id?: string | null;
   source: string;
+  reason?: string | null;
   last_updated: string;
   recent_games?: {
     n_games_used: number;
@@ -145,6 +146,7 @@ export default function App() {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [projection, setProjection] = useState<PlayerProjection | null>(null);
   const [projectionLoading, setProjectionLoading] = useState(false);
+  const [projectionError, setProjectionError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [allTimeLeaderboard, setAllTimeLeaderboard] = useState<LeaderboardRow[]>(
     []
@@ -216,10 +218,27 @@ export default function App() {
       return;
     }
 
-    // Otherwise, treat it as an API base / routing issue (common with Static Site deployments).
+    // If the API health check hasn't completed yet, do a quick check before blaming routing.
+    // This prevents a confusing "API requests are failing" flash during initial page load.
+    try {
+      const controller = new AbortController();
+      const t = window.setTimeout(() => controller.abort(), 2000);
+      const ok = await fetch(`${apiBase}/healthz`, { signal: controller.signal })
+        .then((r) => r.ok)
+        .catch(() => false)
+        .finally(() => window.clearTimeout(t));
+      if (ok) {
+        setApiReachable(true);
+        resetStaleSession("That group can't be found. Please create or join a group again.");
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
     setApiReachable(false);
     setApiBaseError(
-      `API requests are failing at "${apiBase}". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+      `Backend API isn't reachable at "${apiBase}". If you're running locally, start the backend on http://localhost:8000. If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
     );
   };
 
@@ -277,12 +296,12 @@ export default function App() {
 
         setApiReachable(false);
         setApiBaseError(
-          `API health check failed (tried "${primary}" plus fallbacks). If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+          `Backend health check failed (tried "${primary}" plus fallbacks). If you're running locally, start the backend on http://localhost:8000. If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
         );
       } catch {
         setApiReachable(false);
         setApiBaseError(
-          `API is unreachable at "${apiBase}/healthz". If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
+          `Backend API is unreachable at "${apiBase}/healthz". If you're running locally, start the backend on http://localhost:8000. If you deployed frontend and backend separately, set VITE_API_BASE=https://<backend-host>/api and redeploy the frontend.`
         );
       }
     })();
@@ -460,6 +479,7 @@ export default function App() {
     setGamePlayers([]);
     setSelectedPlayer(null);
     setProjection(null);
+    setProjectionError(null);
     setPlayerQuery("");
   }, [selectedDate, view]);
 
@@ -470,6 +490,7 @@ export default function App() {
     setGamePlayers([]);
     setSelectedPlayer(null);
     setProjection(null);
+    setProjectionError(null);
 
     (async () => {
       try {
@@ -526,11 +547,13 @@ export default function App() {
     if (!selectedPlayer.player_id) {
       setProjection(null);
       setProjectionLoading(false);
+      setProjectionError(null);
       return;
     }
     const controller = new AbortController();
     setProjectionLoading(true);
     setProjection(null);
+    setProjectionError(null);
 
     (async () => {
       try {
@@ -540,12 +563,14 @@ export default function App() {
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) {
           setProjection(null);
+          setProjectionError(await readError(res));
           return;
         }
         const data = await res.json();
         setProjection(data && typeof data === "object" ? data : null);
       } catch {
         setProjection(null);
+        setProjectionError("Unable to load projection (network error).");
       } finally {
         setProjectionLoading(false);
       }
@@ -896,7 +921,16 @@ export default function App() {
                   ) : projectionLoading ? (
                     <p>Loading projection…</p>
                   ) : !projection ? (
-                    <p>No projection available.</p>
+                    <div className="breakdown">
+                      <p style={{ marginTop: 0, marginBottom: 0 }}>
+                        <strong>Proj:</strong> —
+                      </p>
+                      {projectionError && (
+                        <p style={{ marginBottom: 0, color: "#64748b" }}>
+                          {projectionError}
+                        </p>
+                      )}
+                    </div>
                   ) : (
                     <div className="breakdown">
                       {(() => {
@@ -938,6 +972,11 @@ export default function App() {
                                   } • AST ${ast === null ? "—" : ast.toFixed(1)}`
                                 : "—"}
                             </p>
+                            {!hasAny && projection.reason && (
+                              <p style={{ marginBottom: 0, color: "#64748b" }}>
+                                {projection.reason}
+                              </p>
+                            )}
                             {fromRecent && (
                               <p style={{ marginBottom: 0, color: "#64748b" }}>
                                 Based on last {fromRecent.n_games_used} games.
