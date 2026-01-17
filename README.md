@@ -87,9 +87,20 @@ If you deploy the frontend as a Render **Static Site** and the backend as a Rend
 - `GET /api/groups/{code}/leaderboard/alltime`
 
 ## Optional sportsbook lines (no scraping)
-By default, projections use a **recent-games** baseline (last N games average).
+By default, projections prefer **sportsbook player prop lines** (separate **Points / Rebounds / Assists**).
 
-If you set **`ODDS_API_KEY`**, the backend will attempt to pull **player prop lines** from a real odds/lines provider (best-effort) and fall back to recent-games when lines are unavailable.
+You can configure a provider:
+- **DraftKings (recommended)**: set **`DRAFTKINGS_PROPS_URL`** to a DraftKings **JSON** endpoint (no HTML scraping).
+- **Odds API**: set **`ODDS_API_KEY`** (plan/markets must include NBA player props).
+
+Optional provider selector:
+- `PROJECTIONS_PROVIDER=draftkings` (or `odds_api`)
+
+Caching:
+- `SPORTSBOOK_CACHE_TTL_SECONDS` (default `1800`)
+
+Optional fallback (disabled by default because `nba_api` can timeout / be blocked):
+- `ENABLE_RECENT_GAMES_FALLBACK=1` to allow falling back to last-N-games averages when sportsbook lines are unavailable.
 
 ## NBA data providers (production)
 - **Schedule + rosters**: uses ESPN public JSON endpoints server-side (no HTML scraping) and caches results in the DB.

@@ -559,7 +559,7 @@ export default function App() {
       try {
         const url = `${apiBase}/nba/players/${selectedPlayer.player_id}/projection?date=${selectedDate}&game_id=${encodeURIComponent(
           selectedPlayer.game_id
-        )}`;
+        )}&player_name_hint=${encodeURIComponent(selectedPlayer.player_name)}`;
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) {
           setProjection(null);
@@ -960,8 +960,8 @@ export default function App() {
                           <>
                             <p style={{ marginTop: 0 }}>
                               <strong>{projection.player_name}</strong> —{" "}
-                              {projection.source === "sportsbook_provider"
-                                ? "Sportsbook line"
+                              {projection.sportsbook
+                                ? `Sportsbook (${projection.sportsbook.provider})`
                                 : "Recent-games projection"}
                             </p>
                             <p style={{ marginBottom: 0 }}>
