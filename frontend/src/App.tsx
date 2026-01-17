@@ -22,13 +22,34 @@ type Game = {
 };
 
 type Player = {
-  player_id: number;
+  player_id: number | null;
   player_name: string;
   team: string;
   game_id: string;
 };
 
 type LeaderboardRow = { user_id: number; user_name: string; score: number };
+
+type TeamRoster = {
+  team_id: string;
+  team_name: string;
+  team_abbr: string;
+  players: Array<{
+    player_id: number | null;
+    player_name: string;
+    position?: string | null;
+    jersey?: string | null;
+  }>;
+};
+
+type GameRostersResponse = {
+  game_id: string;
+  date: string;
+  source: string;
+  last_updated: string;
+  home: TeamRoster;
+  away: TeamRoster;
+};
 
 type PlayerProjection = {
   player_id: number;
@@ -443,15 +464,43 @@ export default function App() {
 
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/nba/games/${selectedGameId}/players`, {
+        const res = await fetch(`${apiBase}/nba/games/${selectedGameId}/rosters`, {
           signal: controller.signal
         });
         if (!res.ok) {
+          setError(await readError(res));
           setGamePlayers([]);
           return;
         }
         const data = await res.json();
-        setGamePlayers(Array.isArray(data) ? data : []);
+        const payload: GameRostersResponse | null =
+          data && typeof data === "object" ? (data as GameRostersResponse) : null;
+
+        const combined: Player[] = [];
+        if (payload?.away?.players && Array.isArray(payload.away.players)) {
+          for (const p of payload.away.players) {
+            if (!p?.player_name) continue;
+            combined.push({
+              player_id: typeof p.player_id === "number" ? p.player_id : null,
+              player_name: p.player_name,
+              team: payload.away.team_abbr || payload.away.team_name || "AWAY",
+              game_id: payload.game_id
+            });
+          }
+        }
+        if (payload?.home?.players && Array.isArray(payload.home.players)) {
+          for (const p of payload.home.players) {
+            if (!p?.player_name) continue;
+            combined.push({
+              player_id: typeof p.player_id === "number" ? p.player_id : null,
+              player_name: p.player_name,
+              team: payload.home.team_abbr || payload.home.team_name || "HOME",
+              game_id: payload.game_id
+            });
+          }
+        }
+
+        setGamePlayers(combined);
       } catch {
         setGamePlayers([]);
       } finally {
@@ -464,6 +513,7 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "pick" || !selectedPlayer) return;
+    if (!selectedPlayer.player_id) return;
     const controller = new AbortController();
     setProjectionLoading(true);
     setProjection(null);
@@ -530,7 +580,7 @@ export default function App() {
   };
 
   const submitPick = async () => {
-    if (!group || !user || !selectedPlayer) return;
+    if (!group || !user || !selectedPlayer || !selectedPlayer.player_id) return;
     setError(null);
     const res = await fetch(`${apiBase}/groups/${group.code}/picks`, {
       method: "POST",
@@ -796,14 +846,16 @@ export default function App() {
                           : true
                       )
                       .map((player) => (
-                        <li key={`${player.game_id}-${player.player_id}`}>
+                        <li key={`${player.game_id}-${player.player_id ?? player.player_name}`}>
                           <button
+                            disabled={!player.player_id}
                             className={
                               selectedPlayer?.player_id === player.player_id ? "selected" : ""
                             }
                             onClick={() => setSelectedPlayer(player)}
                           >
                             {player.player_name} ({player.team})
+                            {!player.player_id ? " — ID unavailable" : ""}
                           </button>
                         </li>
                       ))}
@@ -814,6 +866,8 @@ export default function App() {
                   <h3>Projected Stats</h3>
                   {!selectedPlayer ? (
                     <p>Select a player to see projections.</p>
+                  ) : !selectedPlayer.player_id ? (
+                    <p>Projection unavailable for this player (missing NBA player id).</p>
                   ) : projectionLoading ? (
                     <p>Loading projection…</p>
                   ) : !projection ? (
@@ -882,7 +936,7 @@ export default function App() {
             )}
             <button
               onClick={submitPick}
-              disabled={!selectedPlayer}
+              disabled={!selectedPlayer || !selectedPlayer.player_id}
               className="primary"
             >
               Confirm Pick

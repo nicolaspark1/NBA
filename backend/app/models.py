@@ -144,3 +144,39 @@ class DailyLeaderboard(Base):
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
     date = Column(Date, nullable=False)
     computed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EspnScheduleCache(Base):
+    __tablename__ = "espn_schedule_cache"
+    __table_args__ = (UniqueConstraint("date"),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    games_json = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EspnGameMeta(Base):
+    __tablename__ = "espn_game_meta"
+
+    # ESPN event id (string)
+    game_id = Column(String, primary_key=True)
+    date = Column(Date, nullable=False)
+    start_time = Column(String, nullable=True)
+    home_team = Column(String, nullable=True)
+    away_team = Column(String, nullable=True)
+    home_team_id = Column(String, nullable=True)
+    away_team_id = Column(String, nullable=True)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EspnTeamRosterCache(Base):
+    __tablename__ = "espn_team_roster_cache"
+    __table_args__ = (UniqueConstraint("team_id"),)
+
+    id = Column(Integer, primary_key=True)
+    team_id = Column(String, nullable=False)
+    team_name = Column(String, nullable=True)
+    team_abbr = Column(String, nullable=True)
+    roster_json = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)

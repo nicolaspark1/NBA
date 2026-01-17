@@ -52,6 +52,30 @@ class PlayerOut(BaseModel):
     game_id: str
 
 
+class RosterPlayerOut(BaseModel):
+    # NBA Stats player_id when we can map it from name; may be null for unknowns.
+    player_id: int | None = None
+    player_name: str
+    position: str | None = None
+    jersey: str | None = None
+
+
+class TeamRosterOut(BaseModel):
+    team_id: str
+    team_name: str
+    team_abbr: str
+    players: List[RosterPlayerOut]
+
+
+class GameRostersResponse(BaseModel):
+    game_id: str
+    date: date
+    source: str
+    last_updated: datetime
+    home: TeamRosterOut
+    away: TeamRosterOut
+
+
 class RecentGamesProjectionOut(BaseModel):
     n_games_used: int
     points: float

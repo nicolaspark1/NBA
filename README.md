@@ -77,6 +77,7 @@ If you deploy the frontend as a Render **Static Site** and the backend as a Rend
 - `GET /api/groups/search?query=...&limit=...`
 - `GET /api/nba/games?date=YYYY-MM-DD`
 - `GET /api/nba/games/{game_id}/players`
+- `GET /api/nba/games/{game_id}/rosters`
 - `GET /api/nba/players?date=YYYY-MM-DD&query=...` (legacy convenience endpoint)
 - `GET /api/nba/players/{player_id}/projection?date=YYYY-MM-DD&game_id=...`
 - `POST /api/groups/{code}/picks`
@@ -90,10 +91,9 @@ By default, projections use a **recent-games** baseline (last N games average).
 
 If you set **`ODDS_API_KEY`**, the backend will attempt to pull **player prop lines** from a real odds/lines provider (best-effort) and fall back to recent-games when lines are unavailable.
 
-## NBA stats provider notes (Render)
-The backend uses `nba_api` (which calls `stats.nba.com`). In some hosting environments, the NBA site may block non-browser requests.
+## NBA data providers (production)
+- **Schedule + rosters**: uses ESPN public JSON endpoints server-side (no HTML scraping) and caches results in the DB.
+- **Recent-games projections**: uses `nba_api` (calls `stats.nba.com`), which can be blocked in some hosting environments.
 
-If you see schedule/projection errors in production, you can set:
+If you see projection errors in production, you can set:
 - `NBA_API_USER_AGENT`: override the User-Agent sent to `stats.nba.com` (defaults to a modern Chrome UA).
-
-If `stats.nba.com` is unavailable/blocked, the backend will automatically fall back to ESPN's public JSON scoreboard feed for the **schedule only**.

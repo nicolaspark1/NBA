@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 
 from .db import Base, SessionLocal, engine
 from .models import (
+    EspnGameMeta,
+    EspnScheduleCache,
+    EspnTeamRosterCache,
     Group,
     GroupMember,
     Pick,
@@ -36,6 +39,7 @@ from .nba import (
 from .scoring import compute_expected_stats, score_pick
 from .schemas import (
     GameOut,
+    GameRostersResponse,
     GroupCreate,
     GroupJoin,
     GroupMemberOut,
@@ -47,12 +51,16 @@ from .schemas import (
     PickWithUser,
     PlayerOut,
     PlayerProjectionResponse,
+    RosterPlayerOut,
+    TeamRosterOut,
     RecentGamesProjectionOut,
     SportsbookLinesOut,
     GroupOut,
     UserOut,
 )
 from .sportsbook import get_sportsbook_provider
+from .espn import fetch_scoreboard, fetch_team_roster, parse_schedule_from_events
+from .nba_static import find_nba_player_id_by_name
 
 app = FastAPI()
 
@@ -201,15 +209,91 @@ def search_groups(query: str = "", limit: int = 10, db: Session = Depends(get_db
 
 
 @app.get("/api/nba/games", response_model=List[GameOut])
-def list_games(date: str):
+def list_games(date: str, db: Session = Depends(get_db)):
+    """
+    Robust schedule provider:
+    - Primary: ESPN public JSON scoreboard feed (server-side, no HTML scraping)
+    - Cached in DB to avoid calling upstream on every page load
+    """
     try:
-        games = get_games_by_date(date)
-        return [GameOut(**game) for game in games]
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    now = datetime.utcnow()
+    ttl_seconds = 10 * 60
+
+    cached = db.query(EspnScheduleCache).filter_by(date=target_date).first()
+    if cached and (now - cached.fetched_at).total_seconds() < ttl_seconds:
+        games = cached.games_json if isinstance(cached.games_json, list) else []
+        return [
+            GameOut(
+                game_id=str(g.get("game_id", "")),
+                home_team=str(g.get("home_team", "")),
+                away_team=str(g.get("away_team", "")),
+                start_time=str(g.get("start_time", "")),
+            )
+            for g in games
+            if isinstance(g, dict) and g.get("game_id")
+        ]
+
+    try:
+        events = fetch_scoreboard(date)
+        parsed = parse_schedule_from_events(events)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
             detail=f"NBA schedule unavailable right now ({exc.__class__.__name__}). Try again shortly.",
         )
+
+    if cached:
+        cached.games_json = parsed
+        cached.fetched_at = now
+    else:
+        db.add(EspnScheduleCache(date=target_date, games_json=parsed, fetched_at=now))
+
+    # Store per-game metadata so /rosters can look up team ids from game_id alone.
+    for g in parsed:
+        if not isinstance(g, dict):
+            continue
+        gid = str(g.get("game_id") or "")
+        if not gid:
+            continue
+        meta = db.query(EspnGameMeta).filter_by(game_id=gid).first()
+        if meta:
+            meta.date = target_date
+            meta.start_time = str(g.get("start_time") or "")
+            meta.home_team = str(g.get("home_team") or "")
+            meta.away_team = str(g.get("away_team") or "")
+            meta.home_team_id = str(g.get("home_team_id") or "")
+            meta.away_team_id = str(g.get("away_team_id") or "")
+            meta.fetched_at = now
+        else:
+            db.add(
+                EspnGameMeta(
+                    game_id=gid,
+                    date=target_date,
+                    start_time=str(g.get("start_time") or ""),
+                    home_team=str(g.get("home_team") or ""),
+                    away_team=str(g.get("away_team") or ""),
+                    home_team_id=str(g.get("home_team_id") or ""),
+                    away_team_id=str(g.get("away_team_id") or ""),
+                    fetched_at=now,
+                )
+            )
+
+    db.commit()
+
+    return [
+        GameOut(
+            game_id=str(g.get("game_id", "")),
+            home_team=str(g.get("home_team", "")),
+            away_team=str(g.get("away_team", "")),
+            start_time=str(g.get("start_time", "")),
+        )
+        for g in parsed
+        if isinstance(g, dict) and g.get("game_id")
+    ]
 
 
 @app.get("/api/nba/players", response_model=List[PlayerOut])
@@ -227,6 +311,102 @@ def list_players(date: str, query: str = ""):
 def list_players_for_game(game_id: str):
     players = get_players_for_game(game_id)
     return [PlayerOut(**p) for p in players]
+
+
+@app.get("/api/nba/games/{game_id}/rosters", response_model=GameRostersResponse)
+def game_rosters(game_id: str, db: Session = Depends(get_db)):
+    """
+    Rosters for both teams for a game.
+    Uses ESPN team roster JSON (server-side) and maps player names to NBA ids when possible.
+    """
+    meta = db.query(EspnGameMeta).filter_by(game_id=game_id).first()
+    if not meta:
+        raise HTTPException(status_code=404, detail="game not found")
+
+    now = datetime.utcnow()
+    ttl_seconds = 6 * 60 * 60
+
+    def load_team(team_id: str, fallback_label: str) -> TeamRosterOut:
+        cached = db.query(EspnTeamRosterCache).filter_by(team_id=team_id).first()
+        athletes = None
+        team_name = ""
+        team_abbr = ""
+
+        if cached and (now - cached.fetched_at).total_seconds() < ttl_seconds:
+            team_name = cached.team_name or ""
+            team_abbr = cached.team_abbr or ""
+            athletes = cached.roster_json if isinstance(cached.roster_json, list) else []
+        else:
+            try:
+                team_name, team_abbr, athletes = fetch_team_roster(team_id)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Roster unavailable right now ({exc.__class__.__name__}). Try again shortly.",
+                )
+
+            if cached:
+                cached.team_name = team_name
+                cached.team_abbr = team_abbr
+                cached.roster_json = athletes
+                cached.fetched_at = now
+            else:
+                db.add(
+                    EspnTeamRosterCache(
+                        team_id=team_id,
+                        team_name=team_name,
+                        team_abbr=team_abbr,
+                        roster_json=athletes,
+                        fetched_at=now,
+                    )
+                )
+            db.commit()
+
+        players_out: List[RosterPlayerOut] = []
+        for item in athletes if isinstance(athletes, list) else []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("fullName") or item.get("displayName") or "").strip()
+            if not name:
+                continue
+            pos = None
+            if isinstance(item.get("position"), dict):
+                pos = str(item["position"].get("abbreviation") or item["position"].get("name") or "")
+                pos = pos or None
+            jersey = str(item.get("jersey") or "").strip() or None
+            nba_id = find_nba_player_id_by_name(name)
+            players_out.append(
+                RosterPlayerOut(
+                    player_id=nba_id,
+                    player_name=name,
+                    position=pos,
+                    jersey=jersey,
+                )
+            )
+
+        return TeamRosterOut(
+            team_id=team_id,
+            team_name=team_name or fallback_label,
+            team_abbr=team_abbr or "",
+            players=players_out,
+        )
+
+    home_id = (meta.home_team_id or "").strip()
+    away_id = (meta.away_team_id or "").strip()
+    if not home_id or not away_id:
+        raise HTTPException(status_code=503, detail="Roster unavailable (missing team ids)")
+
+    home = load_team(home_id, meta.home_team or "")
+    away = load_team(away_id, meta.away_team or "")
+
+    return GameRostersResponse(
+        game_id=game_id,
+        date=meta.date,
+        source="espn",
+        last_updated=meta.fetched_at,
+        home=home,
+        away=away,
+    )
 
 
 @app.get("/api/nba/players/{player_id}/projection", response_model=PlayerProjectionResponse)
