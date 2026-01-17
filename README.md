@@ -95,3 +95,5 @@ The backend uses `nba_api` (which calls `stats.nba.com`). In some hosting enviro
 
 If you see schedule/projection errors in production, you can set:
 - `NBA_API_USER_AGENT`: override the User-Agent sent to `stats.nba.com` (defaults to a modern Chrome UA).
+
+If `stats.nba.com` is unavailable/blocked, the backend will automatically fall back to ESPN's public JSON scoreboard feed for the **schedule only**.
