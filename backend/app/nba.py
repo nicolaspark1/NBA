@@ -32,6 +32,13 @@ def _nba_headers() -> dict:
     }
 
 
+def _nba_timeout_seconds() -> int:
+    try:
+        return max(1, int(os.getenv("NBA_API_TIMEOUT", "10")))
+    except Exception:
+        return 10
+
+
 def _normalize_scoreboard_date(date_str: str) -> str:
     """
     ScoreboardV2 expects MM/DD/YYYY.
@@ -109,6 +116,7 @@ def get_games_by_date(date_str: str) -> List[Dict[str, str]]:
             league_id="00",
             day_offset=0,
             headers=_nba_headers(),
+            timeout=_nba_timeout_seconds(),
         )
         games = scoreboard.game_header.get_dict()["data"]
         teams = scoreboard.line_score.get_dict()["data"]
@@ -149,7 +157,11 @@ def get_games_by_date(date_str: str) -> List[Dict[str, str]]:
 
 
 def get_players_for_game(game_id: str) -> List[Dict[str, str]]:
-    box = BoxScoreTraditionalV2(game_id=game_id, headers=_nba_headers())
+    box = BoxScoreTraditionalV2(
+        game_id=game_id,
+        headers=_nba_headers(),
+        timeout=_nba_timeout_seconds(),
+    )
     players = box.player_stats.get_dict()["data"]
     results = []
     for row in players:
@@ -165,7 +177,11 @@ def get_players_for_game(game_id: str) -> List[Dict[str, str]]:
 
 
 def get_box_score_for_player(game_id: str, player_id: int) -> Dict[str, float] | None:
-    box = BoxScoreTraditionalV2(game_id=game_id, headers=_nba_headers())
+    box = BoxScoreTraditionalV2(
+        game_id=game_id,
+        headers=_nba_headers(),
+        timeout=_nba_timeout_seconds(),
+    )
     players = box.player_stats.get_dict()["data"]
     for row in players:
         if row[4] == player_id:
@@ -188,6 +204,7 @@ def get_recent_games(player_id: int, end_date: str, n_games: int) -> List[Dict[s
         date_from_nullable="",
         date_to_nullable=end_date,
         headers=_nba_headers(),
+        timeout=_nba_timeout_seconds(),
     )
     games = log.get_dict()["resultSets"][0]["rowSet"]
     results = []

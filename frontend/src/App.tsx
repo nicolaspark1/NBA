@@ -111,6 +111,15 @@ async function readError(res: Response): Promise<string> {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const playerKey = (p: Player) =>
+  `${p.game_id}-${p.team}-${p.player_id ?? `name:${p.player_name.toLowerCase()}`}`;
+
+const samePlayer = (a: Player | null, b: Player | null) => {
+  if (!a || !b) return false;
+  if (a.player_id && b.player_id) return a.player_id === b.player_id;
+  return playerKey(a) === playerKey(b);
+};
+
 export default function App() {
   const [view, setView] = useState<"landing" | "group" | "pick" | "results">(
     "landing"
@@ -513,7 +522,12 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "pick" || !selectedPlayer) return;
-    if (!selectedPlayer.player_id) return;
+    // Always clear loading state when switching players (including players without NBA ids).
+    if (!selectedPlayer.player_id) {
+      setProjection(null);
+      setProjectionLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setProjectionLoading(true);
     setProjection(null);
@@ -599,6 +613,18 @@ export default function App() {
       }
       setError(await readError(res));
       return;
+    }
+    try {
+      const created = (await res.json()) as PickRow;
+      if (created && typeof created === "object") {
+        setPicks((prev) => {
+          const next = Array.isArray(prev) ? prev.slice() : [];
+          if (created.id && next.some((p) => p.id === created.id)) return next;
+          return [created, ...next];
+        });
+      }
+    } catch {
+      // ignore; group view will still show picks on next refresh/date change
     }
     setSelectedPlayer(null);
     setView("group");
@@ -846,11 +872,10 @@ export default function App() {
                           : true
                       )
                       .map((player) => (
-                        <li key={`${player.game_id}-${player.player_id ?? player.player_name}`}>
+                        <li key={playerKey(player)}>
                           <button
-                            disabled={!player.player_id}
                             className={
-                              selectedPlayer?.player_id === player.player_id ? "selected" : ""
+                              samePlayer(selectedPlayer, player) ? "selected" : ""
                             }
                             onClick={() => setSelectedPlayer(player)}
                           >
@@ -874,61 +899,53 @@ export default function App() {
                     <p>No projection available.</p>
                   ) : (
                     <div className="breakdown">
-                      <p style={{ marginTop: 0 }}>
-                        <strong>{projection.player_name}</strong> —{" "}
-                        {projection.source === "sportsbook_provider"
-                          ? "Sportsbook line"
-                          : "Recent-games projection"}
-                      </p>
+                      {(() => {
+                        const fromBook = projection.sportsbook?.lines ?? {};
+                        const fromRecent = projection.recent_games ?? null;
+                        const pts =
+                          typeof fromBook.points === "number"
+                            ? fromBook.points
+                            : typeof fromRecent?.points === "number"
+                              ? fromRecent.points
+                              : null;
+                        const reb =
+                          typeof fromBook.rebounds === "number"
+                            ? fromBook.rebounds
+                            : typeof fromRecent?.rebounds === "number"
+                              ? fromRecent.rebounds
+                              : null;
+                        const ast =
+                          typeof fromBook.assists === "number"
+                            ? fromBook.assists
+                            : typeof fromRecent?.assists === "number"
+                              ? fromRecent.assists
+                              : null;
 
-                      {projection.sportsbook?.lines &&
-                        Object.keys(projection.sportsbook.lines).length > 0 && (
+                        const hasAny = pts !== null || reb !== null || ast !== null;
+                        return (
                           <>
-                            <h4>Sportsbook lines</h4>
-                            <ul className="list">
-                              {Object.entries(projection.sportsbook.lines).map(([k, v]) => (
-                                <li key={k}>
-                                  <strong>{k.toUpperCase()}</strong>: {v}
-                                </li>
-                              ))}
-                            </ul>
+                            <p style={{ marginTop: 0 }}>
+                              <strong>{projection.player_name}</strong> —{" "}
+                              {projection.source === "sportsbook_provider"
+                                ? "Sportsbook line"
+                                : "Recent-games projection"}
+                            </p>
+                            <p style={{ marginBottom: 0 }}>
+                              <strong>Proj:</strong>{" "}
+                              {hasAny
+                                ? `PTS ${pts === null ? "—" : pts.toFixed(1)} • REB ${
+                                    reb === null ? "—" : reb.toFixed(1)
+                                  } • AST ${ast === null ? "—" : ast.toFixed(1)}`
+                                : "—"}
+                            </p>
+                            {fromRecent && (
+                              <p style={{ marginBottom: 0, color: "#64748b" }}>
+                                Based on last {fromRecent.n_games_used} games.
+                              </p>
+                            )}
                           </>
-                        )}
-
-                      {projection.recent_games && (
-                        <>
-                          <h4>Recent-games projection</h4>
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>Stat</th>
-                                <th>Projected</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(
-                                [
-                                  ["points", projection.recent_games.points],
-                                  ["assists", projection.recent_games.assists],
-                                  ["rebounds", projection.recent_games.rebounds],
-                                  ["steals", projection.recent_games.steals],
-                                  ["blocks", projection.recent_games.blocks],
-                                  ["turnovers", projection.recent_games.turnovers],
-                                  ["personal_fouls", projection.recent_games.personal_fouls]
-                                ] as const
-                              ).map(([stat, value]) => (
-                                <tr key={stat}>
-                                  <td>{stat}</td>
-                                  <td>{value.toFixed(1)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          <p style={{ marginBottom: 0, color: "#64748b" }}>
-                            Based on last {projection.recent_games.n_games_used} games.
-                          </p>
-                        </>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

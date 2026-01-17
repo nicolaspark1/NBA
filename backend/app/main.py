@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from nba_api.stats.static import players as nba_players
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -375,9 +376,20 @@ def game_rosters(game_id: str, db: Session = Depends(get_db)):
                 pos = pos or None
             jersey = str(item.get("jersey") or "").strip() or None
             nba_id = find_nba_player_id_by_name(name)
+            # ESPN roster includes a stable athlete id; use it as a deterministic fallback so
+            # the UI can keep players selectable even if nba_api name matching fails.
+            fallback_id: int | None = None
+            raw_espn_id = item.get("id")
+            try:
+                espn_id_int = int(raw_espn_id) if raw_espn_id is not None else None
+                if espn_id_int:
+                    # Offset to avoid colliding with NBA Stats ids.
+                    fallback_id = 10_000_000_000 + espn_id_int
+            except Exception:
+                fallback_id = None
             players_out.append(
                 RosterPlayerOut(
-                    player_id=nba_id,
+                    player_id=nba_id if nba_id is not None else fallback_id,
                     player_name=name,
                     position=pos,
                     jersey=jersey,
@@ -432,32 +444,35 @@ def player_projection(
     if not player_name:
         player_name = get_player_name(player_id)
 
-    # Always compute or load recent-games expected stats (fallback projection).
-    expected = (
-        db.query(PlayerExpectedStat)
-        .filter_by(player_id=player_id, date=target_date)
-        .first()
-    )
-    if not expected:
-        expected = compute_expected_stats(player_id, target_date)
-        db.add(expected)
-        db.commit()
-        db.refresh(expected)
+    recent: RecentGamesProjectionOut | None = None
+    expected: PlayerExpectedStat | None = None
+    # Only attempt NBA Stats projections for real NBA Stats player ids.
+    if nba_players.find_player_by_id(int(player_id)):
+        expected = (
+            db.query(PlayerExpectedStat)
+            .filter_by(player_id=player_id, date=target_date)
+            .first()
+        )
+        if not expected:
+            expected = compute_expected_stats(player_id, target_date)
+            db.add(expected)
+            db.commit()
+            db.refresh(expected)
 
-    recent = RecentGamesProjectionOut(
-        n_games_used=expected.n_games_used,
-        points=float(expected.exp_points),
-        assists=float(expected.exp_assists),
-        rebounds=float(expected.exp_rebounds),
-        steals=float(expected.exp_steals),
-        blocks=float(expected.exp_blocks),
-        turnovers=float(expected.exp_turnovers),
-        personal_fouls=float(expected.exp_personal_fouls),
-    )
+        recent = RecentGamesProjectionOut(
+            n_games_used=expected.n_games_used,
+            points=float(expected.exp_points),
+            assists=float(expected.exp_assists),
+            rebounds=float(expected.exp_rebounds),
+            steals=float(expected.exp_steals),
+            blocks=float(expected.exp_blocks),
+            turnovers=float(expected.exp_turnovers),
+            personal_fouls=float(expected.exp_personal_fouls),
+        )
 
     sportsbook_out: SportsbookLinesOut | None = None
-    source = "recent_games"
-    last_updated = expected.computed_at
+    source = "recent_games" if recent else "unavailable"
+    last_updated = expected.computed_at if expected else datetime.utcnow()
 
     provider = get_sportsbook_provider()
     if provider:
